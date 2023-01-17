@@ -6,12 +6,14 @@ import time
 import json5 as json
 from collections import defaultdict
 import argparse 
+import statistics
 
 
 def dataframe_gen():
     
-    df = pd.read_csv('New full.csv')
+    df = pd.read_csv('New_Full.csv')
     df = df.drop(columns=['REG_crsSchool', 'REG_REG_credHr', 'REG_classSize', 'CRS_crsCampus', 'CRS_schdtyp', 'FID', 'CRS_contact_hrs', 'CRS_XLSTGRP', 'CRS_PrimarySect', 'CRS_enrolltally', 'STU_DegreeSeek', 'STU_credstua',])
+    
     df = df.loc[(df['REG_Programcode'] == Dept)] #| (df['REG_Programcode'] == 'CHEM')] #| (df['REG_Programcode'] == 'BISC') | (df['REG_Programcode'] == 'MATH') | (df['REG_Programcode'] == 'PHYS')]
     df['OTCM_FinalGradeN'].replace(' ', np.nan, inplace = True)
     df.dropna(subset=['OTCM_FinalGradeN'], inplace=True)
@@ -290,13 +292,14 @@ def count_subset(candidate, length, df):
                             
 def run_Apriori(Ck, minsupport, k, df): 
     dict = {}
+    count_dict = {}
     
     while Ck != []:                                         ## While loop keeps running algorithm until no more freq sets can get generated ## 
         K = str(k) 
         col = "Freq " + K + "-Itemsets"
         count = count_subset(Ck, len(Ck), df)               ## Count subset indexurrences to be pruned ## 
-        
-        
+        dict[col] = count
+        count_dict.update(count)
         #print(count)
         
         freq_set = candidate_prune(count, minsupport)           ## Prunes subsets that don't reach threshold ## 
@@ -307,14 +310,14 @@ def run_Apriori(Ck, minsupport, k, df):
         #for i in range(len(Ck)):
             #print(Ck[i])
         
-        if Ck != []:                                  ## To ensure no empty k-itemsets are added to dict
-            dict[col] = count
+        #if Ck != []:                                  ## To ensure no empty k-itemsets are added to dict
+            #dict[col] = count
         
         k += 1
         print("Iteration Complete")
-    return dict
+    return dict, count_dict
 
-    
+       
 
 ## EXPORTS DATAFRAME TO CSV ##
 ## PARAM: FINAL DICT TO CHANGE TO CSV, MINSUPPORT TO REMOVE ROWS ## 
@@ -328,7 +331,7 @@ def dataframe_tocsv(dict, minsupport, transactions):
     
     k_transactions = export_df.count()
     k_transactions = k_transactions.to_dict()
-    print(k_transactions)
+    #print(k_transactions)
     export_df['Count %'] = (export_df.sum(axis = 1) / transactions) * 100
     
     #print(export_df)
@@ -351,7 +354,64 @@ def export_data(single, set, transactions, runtime):
         file.write("--- %s seconds ---" % runtime)              
 
 
-
+## AVERAGE SEMESTER COMMON COURSES ARE TAKEN IN 
+def avg_semester(df,seq_dict):
+    
+     
+    single_dict = defaultdict(int)
+    keys = list(seq_dict.keys())             #Itemset keys in dictionary
+    keys = [i.replace('|',',').split(',') for i in keys]  #Replace '|' with ','y
+    values = list(seq_dict.values())         #Counts in dictionary
+    
+    transactions = [i.strip("[]").split(", ") for i in df.Coursecode]
+    semester = [i.strip("[]").split(", ") for i in df.termOrder]
+    
+    ## FREQUENT SEQUENCES ARE BROKEN UP INTO SINGLE COURSE 
+    ##   AND THEIR CORRESPONDING SUPPORT 
+    for i in range(len(keys)):
+        key = keys[i]
+        for j in range(len(key)):
+            single_key = key[j]
+            count = int(values[i])
+            if count >= minsupport:
+                single_dict[single_key] += count
+                
+    single_keys = list(single_dict.keys())
+    sem_avg_dict = defaultdict(int)   
+    sem_med_dict = defaultdict(int)
+    sem_std_dict = defaultdict(int)
+    
+    list_of_semesters = [] 
+    for i in range(len(single_keys)):              # FOR EACH FREQUENT COURSE
+        #semesters_total = 0
+        key = single_keys[i]
+        count = 0
+        list_of_semesters.clear()
+        #print(single_keys[i])
+        for j in range(len(transactions)):               # FOR EVERY TRANSACTION IN DF           
+            seq = transactions[j] 
+            sem = semester[j]
+            for k in range(len(seq)):
+                if single_keys[i] == seq[k]:                   # IF FREQ COURSE FOUND IN DF
+                    starting_sem = float(sem[0])                      # FLOAT OBJECT IS NOT SUBSCRIPTABLE 
+                    current_sem = float(sem[k])                       # FLOAT OBJECT IS NOT SUBSCRIPTABLE 
+                    sem_diff = (current_sem - starting_sem) + 1
+                    #semesters_total += sem_diff      # INCREASE TOTAL SEMESTERS COUNT 
+                    list_of_semesters.append(sem_diff)
+                    count += 1                      
+        sem_avg_dict[key] = statistics.mean(list_of_semesters)      #COMPUTE AVG SEMESTER FOR EACH FREQ COURSE
+        sem_med_dict[key] = statistics.median(list_of_semesters)
+        sem_std_dict[key] = statistics.pstdev(list_of_semesters)
+        
+        
+    export_avg_df = pd.DataFrame(sem_avg_dict.items(), columns=['Course', 'Avg Semester'])
+    export_med_df = pd.DataFrame(sem_med_dict.items(), columns=['Course', 'Med Semester'])
+    export_std_df = pd.DataFrame(sem_std_dict.items(), columns=['Course', 'StDev Semester'])
+    
+    export_avg_df.to_csv('Avg_SEM_50.csv')
+    export_med_df.to_csv('Med_SEM_50.csv')
+    export_std_df.to_csv('Std_SEM_50.csv')
+        
 
 # ========================================= MAIN =================================================== #
 
@@ -360,7 +420,6 @@ file_name = 'CISC_TRAIL_1-1'
 start_time = time.time()
 
 #INITIALIZING PARSER
-
 parser = argparse.ArgumentParser(
                     description = 'Process arguments'
                     )
@@ -378,9 +437,13 @@ transactions = dataframe_gen()
 
 ## READING IN PROCESSED DATAFRAME ##
 df = pd.read_csv('transactions_df.csv')
+total_df = pd.read_csv('transactions_total_df.csv')
+
+
 
 #INSERTING DELIMITER
 new_df = insert_delimitor(df)
+
 
 ## ESTABLISHING MIN SUPPORT AND PASS index ##
 #minsupport = #
@@ -415,8 +478,10 @@ Ck = itemset_join(freq_singles)
 #print(Ck)
 
 ## RUNS APRIORI ALGORITHM ## 
-
-export_dict = run_Apriori(Ck, minsupport, k, new_df)
+export_dict, total_dict = run_Apriori(Ck, minsupport, k, new_df)
 k_count = dataframe_tocsv(export_dict,  minsupport, transactions)
 session = (time.time() - start_time)
 export_data(single_count, k_count, transactions, session)
+
+## AVG SEMESTER FREQ COURSES ARE TAKEN IN 
+avg_sem_dict = avg_semester(total_df,total_dict)
