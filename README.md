@@ -1,5 +1,4 @@
 # Apriori-Algorithim
-Apriori Algorithm with an extension that takes order of sequences into account. 
 
 University students have a great deal of freedom in deciding the order in which to take their courses. In this project we apply the Apriori-based Generalized Sequential Pattern (GSP) algorithm to undergraduate course data from a large university in order to identify frequent course sequences. 
 
